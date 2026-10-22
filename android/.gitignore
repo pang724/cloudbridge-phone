@@ -1,0 +1,13 @@
+gradle-wrapper.jar
+/.gradle
+/captures/
+/gradlew
+/gradlew.bat
+/local.properties
+GeneratedPluginRegistrant.java
+.cxx/
+
+# 私有仓库：release 签名密钥与密码随仓库提交，CI 直接读取（仓库保持私有！）
+**/*.keystore
+**/*.jks
+!app/release.keystore
