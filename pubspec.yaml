@@ -1,0 +1,22 @@
+name: phone_bridge
+description: "云桥备份 PhoneBridge · 手机端（P3 真机 APK）：与 PC 端 P2 同协议，扫码/手输连接，授权相册与目录，支持下载/上传/相册操作。"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # WebSocket 客户端（与 PC 端 P2 BridgeServer 通信）
+  web_socket_channel: ^3.0.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
