@@ -251,7 +251,7 @@ class MainActivity : FlutterActivity() {
     /* ================= MediaStore 相册 ================= */
 
     private fun listAlbums(): Map<String, Any> {
-        val albums = LinkedHashMap<String, MutableMap<String, Any?>>()
+        val albums = LinkedHashMap<String, Map<String, Any?>>()
         // 图片
         queryBuckets(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, "i") { m ->
             albums[m["id"] as String] = m
@@ -628,17 +628,17 @@ class MainActivity : FlutterActivity() {
             val u = docUri(treeUri, reqPath(call))
             u to docSize(u)
         }
-        val is = contentResolver.openInputStream(uri) ?: throw Exception("打开读取流失败")
-        val h = register(StreamHandle(input = is))
+        val ins = contentResolver.openInputStream(uri) ?: throw Exception("打开读取流失败")
+        val h = register(StreamHandle(input = ins))
         return mapOf("handle" to h, "total" to total)
     }
 
     private fun readChunk(call: MethodCall): List<Int>? {
         val handle = call.argument<Int>("handle") ?: throw Exception("缺少 handle")
         val h = handles[handle] ?: throw Exception("无效句柄")
-        val is = h.input ?: throw Exception("非读句柄")
+        val ins = h.input ?: throw Exception("非读句柄")
         val buf = ByteArray(CHUNK)
-        val n = is.read(buf)
+        val n = ins.read(buf)
         if (n < 0) return null
         return buf.copyOf(n).map { it.toInt() }
     }
@@ -648,11 +648,11 @@ class MainActivity : FlutterActivity() {
         val h = handles[handle] ?: throw Exception("无效句柄")
         val os = h.output ?: throw Exception("非写句柄")
         val bytes = call.argument<List<Int>>("bytes") ?: emptyList()
-        os.write(bytes.toByteArray { it.toByte() })
+        os.write(ByteArray(bytes.size) { i -> bytes[i].toByte() })
         h.written += bytes.size
     }
 
-    private fun closeWrite(call: MethodCall): Map<String, Any> {
+    private fun closeWrite(call: MethodCall): Map<String, Any?> {
         val handle = call.argument<Int>("handle") ?: throw Exception("缺少 handle")
         val h = handles.remove(handle) ?: return mapOf("ok" to true)
         try {
