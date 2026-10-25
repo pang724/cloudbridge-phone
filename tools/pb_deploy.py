@@ -158,6 +158,24 @@ def download_artifacts(run_id):
     print("DONE", flush=True)
 
 
+def wait_ci(max_wait=40):
+    """等待远端 main 出现 workflow 文件（用户网页手动上传），随后轮询 CI 并下载 APK。"""
+    for i in range(max_wait):
+        try:
+            b = api_get(f"{API}/repos/{REPO}/branches/main")
+            t = api_get(f"{API}/repos/{REPO}/git/trees/{b['commit']['sha']}?recursive=1")
+            if any("workflows/build-apk.yml" in e["path"] for e in t["tree"] if e["type"] == "blob"):
+                print("workflow file detected on main; starting CI poll", flush=True)
+                poll_and_download()
+                return
+            print(f"[wait {i}] workflow file not on main yet", flush=True)
+        except Exception as e:
+            print(f"[wait {i}] error: {e}", flush=True)
+        time.sleep(30)
+    print("TIMEOUT waiting for workflow file", flush=True)
+    sys.exit(1)
+
+
 def poll_and_download():
     for i in range(30):
         try:
@@ -515,5 +533,7 @@ if __name__ == "__main__":
         finish()
     elif mode == "batch":
         batch()
+    elif mode == "wait_ci":
+        wait_ci()
     else:
         poll_and_download()
