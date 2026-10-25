@@ -9,7 +9,6 @@ import android.os.Build
 import android.os.Environment
 import android.provider.DocumentsContract
 import android.provider.MediaStore
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
@@ -47,7 +46,13 @@ class MainActivity : FlutterActivity() {
         const val EVENTS = "cloudbridge/native/events"
         const val CHUNK = 256 * 1024
         const val REQ_MEDIA = 1001
+        const val REQ_PICK = 1002
         const val MIME_DIR = "vnd.android.document/directory"
+        // DocumentsContract.Document 列名字面量（值与标准常量一致，规避依赖解析差异）
+        const val DOC_DISPLAY_NAME = "_display_name"
+        const val DOC_MIME_TYPE = "_mime_type"
+        const val DOC_SIZE = "_size"
+        const val DOC_DATE_MODIFIED = "_date_modified"
     }
 
     /** 流句柄：读（input）或写（output）；photo 写回时带 pendingMediaUri（29+ IS_PENDING 清理）。 */
@@ -68,24 +73,6 @@ class MainActivity : FlutterActivity() {
     private var pendingPermResult: MethodChannel.Result? = null
     private var pendingPickResult: MethodChannel.Result? = null
     private var launchUri: String? = null
-
-    /** SAF 目录选择器（需在 activity 创建前注册）。 */
-    private val pickLauncher =
-        registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-            val r = pendingPickResult
-            pendingPickResult = null
-            if (uri == null) {
-                r?.success(null)
-                return@registerForActivityResult
-            }
-            try {
-                contentResolver.takePersistableUriPermission(
-                    uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-            } catch (_: Exception) {
-            }
-            r?.success(uri.toString())
-        }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -128,6 +115,23 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQ_PICK) return
+        val r = pendingPickResult
+        pendingPickResult = null
+        val uri = data?.data
+        if (resultCode != RESULT_OK || uri == null) {
+            r?.success(null)
+            return
+        }
+        try {
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (_: Exception) {
+        }
+        r?.success(uri.toString())
+    }
+
     private fun takeCloudbridgeUri(intent: Intent?): String? {
         val data = intent?.data ?: return null
         return if (data.scheme == "cloudbridge") data.toString() else null
@@ -145,7 +149,10 @@ class MainActivity : FlutterActivity() {
             "launchUri" -> result.success(launchUri)
             "safPick" -> {
                 pendingPickResult = result
-                pickLauncher.launch(null)
+                startActivityForResult(
+                    Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addCategory(Intent.CATEGORY_OPENABLE),
+                    REQ_PICK
+                )
             }
             "requestMediaPermission" -> {
                 val need = when {
@@ -519,7 +526,7 @@ class MainActivity : FlutterActivity() {
     /* ================= SAF 目录 ================= */
 
     private fun treeName(treeUri: Uri): String {
-        contentResolver.query(treeUri, arrayOf(DocumentsContract.Document.DISPLAY_NAME), null, null, null)
+        contentResolver.query(treeUri, arrayOf(DOC_DISPLAY_NAME), null, null, null)
             ?.use { c ->
                 if (c.moveToFirst()) return c.getString(0) ?: "目录"
             }
@@ -532,19 +539,14 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun docUri(treeUri: Uri, path: String): Uri =
-        DocumentsContract.buildDocumentUriUsingPath(treeUri, treeDocPath(treeUri, path))
+        DocumentsContract.buildDocumentUriUsingTree(treeUri, treeDocPath(treeUri, path))
 
     private fun listSafDir(treeUri: Uri, path: String): Map<String, Any> {
         val files = mutableListOf<Map<String, Any?>>()
         val dirs = mutableListOf<Map<String, Any?>>()
         contentResolver.query(
             docUri(treeUri, path),
-            arrayOf(
-                DocumentsContract.Document.DISPLAY_NAME,
-                DocumentsContract.Document.MIME_TYPE,
-                DocumentsContract.Document.SIZE,
-                DocumentsContract.Document.DATE_MODIFIED
-            ),
+            arrayOf(DOC_DISPLAY_NAME, DOC_MIME_TYPE, DOC_SIZE, DOC_DATE_MODIFIED),
             null, null, null
         )?.use { c ->
             while (c.moveToNext()) {
@@ -565,7 +567,7 @@ class MainActivity : FlutterActivity() {
         var bytes = 0L
         contentResolver.query(
             docUri(treeUri, path),
-            arrayOf(DocumentsContract.Document.MIME_TYPE, DocumentsContract.Document.SIZE),
+            arrayOf(DOC_MIME_TYPE, DOC_SIZE),
             null, null, null
         )?.use { c ->
             while (c.moveToNext()) {
@@ -582,7 +584,7 @@ class MainActivity : FlutterActivity() {
         val names = mutableListOf<String>()
         contentResolver.query(
             docUri(treeUri, path),
-            arrayOf(DocumentsContract.Document.DISPLAY_NAME, DocumentsContract.Document.MIME_TYPE),
+            arrayOf(DOC_DISPLAY_NAME, DOC_MIME_TYPE),
             null, null, null
         )?.use { c ->
             while (c.moveToNext()) {
@@ -600,7 +602,7 @@ class MainActivity : FlutterActivity() {
         val path = reqPath(call)
         val name = call.argument<String>("name") ?: throw Exception("缺少 name")
         val mime = (call.argument<String>("mime") ?: "").ifEmpty { "application/octet-stream" }
-        val doc = contentResolver.createDocument(docUri(treeUri, path), mime, name)
+        val doc = DocumentsContract.createDocument(contentResolver, docUri(treeUri, path), mime, name)
             ?: throw Exception("创建文件失败")
         val os = contentResolver.openOutputStream(doc) ?: throw Exception("打开写入流失败")
         val h = register(StreamHandle(output = os, name = name))
@@ -609,7 +611,7 @@ class MainActivity : FlutterActivity() {
 
     private fun docSize(u: Uri): Long {
         contentResolver.query(
-            u, arrayOf(DocumentsContract.Document.SIZE), null, null, null
+            u, arrayOf(DOC_SIZE), null, null, null
         )?.use { c ->
             if (c.moveToFirst()) return c.getLong(0)
         }
