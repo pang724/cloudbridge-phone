@@ -58,6 +58,11 @@ kotlin {
     }
 }
 
+dependencies {
+    // SAF 目录选择器 registerForActivityResult 需要（确保 androidx.activity 版本）
+    implementation("androidx.activity:activity:1.9.3")
+}
+
 flutter {
     source = "../.."
 }
